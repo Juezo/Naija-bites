@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Naija Bites</title>
+
+<style>
+  /* ============ COLORS: try changing these first ============ */
+  :root {
+    --main: #e85d04;     /* button and heading color */
+    --dark: #222222;     /* text color */
+    --light: #fff7f0;    /* page background */
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: var(--light);
+    color: var(--dark);
+  }
+
+  header {
+    background: var(--main);
+    color: white;
+    padding: 20px;
+    text-align: center;
+  }
+
+  /* Two columns on laptop: menu on the left, cart on the right */
+  .layout {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+    padding: 20px;
+    max-width: 1100px;
+    margin: auto;
+  }
+
+  /* Menu cards: as many per row as will fit */
+  .menu {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 15px;
+  }
+
+  .card {
+    background: white;
+    border-radius: 12px;
+    padding: 15px;
+    text-align: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  }
+  .card .emoji { font-size: 50px; }
+  .card h3 { margin: 8px 0; font-size: 16px; }
+  .card .price { color: var(--main); font-weight: bold; }
+
+  button {
+    background: var(--main);
+    color: white;
+    border: none;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 15px;
+    cursor: pointer;
+    margin-top: 8px;
+  }
+
+  /* Cart box */
+  .cart {
+    background: white;
+    border-radius: 12px;
+    padding: 15px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    height: fit-content;
+  }
+  .cart-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #eee;
+  }
+  .qty-buttons button {
+    padding: 3px 9px;
+    margin: 0 4px;
+  }
+  .total { font-size: 20px; font-weight: bold; margin-top: 12px; }
+
+  /* Floating "View cart" button (only shows on phones) */
+  .cart-link { display: none; }
+
+  /* ============ PHONE LAYOUT ============ */
+  @media (max-width: 700px) {
+    .layout { grid-template-columns: 1fr; }   /* stack: menu then cart */
+    .cart-link {
+      display: block;
+      position: fixed;
+      bottom: 15px;
+      right: 15px;
+      background: var(--dark);
+      color: white;
+      padding: 12px 18px;
+      border-radius: 30px;
+      text-decoration: none;
+    }
+  }
+</style>
+</head>
+
+<body>
+
+<header>
+  <h1>🍽️ Naija Bites</h1>
+  <p>Hot food, delivered fast</p>
+</header>
+
+<div class="layout">
+  <!-- MENU: filled in by JavaScript (renderMenu) -->
+  <div class="menu" id="menu"></div>
+
+  <!-- CART: filled in by JavaScript (renderCart) -->
+  <div class="cart" id="cart">
+    <h2>Your Cart</h2>
+    <div id="cart-items"></div>
+    <div class="total" id="cart-total"></div>
+    <button onclick="checkout()">Order on WhatsApp</button>
+    <button onclick="clearCart()" style="background:#999">Clear cart</button>
+  </div>
+</div>
+
+<a class="cart-link" href="#cart" id="cart-link">View cart</a>
+
+<script>
+  // ============ SETTINGS: change these ============
+  const WHATSAPP_NUMBER = "2340000000000";  // your number, with 234 and no + or 0 at the start
+
+  // ============ THE MENU ============
+  // Each item is an object. Add a new one by copying a line.
+  // Remember: every id must be different!
+  const menu = [
+    { id: 1, name: "Jollof Rice & Chicken", price: 3500, emoji: "🍛" },
+    { id: 2, name: "Fried Rice & Plantain", price: 3200, emoji: "🍚" },
+    { id: 3, name: "Pounded Yam & Egusi",   price: 4000, emoji: "🥘" },
+    { id: 4, name: "Suya (Beef)",           price: 2500, emoji: "🍢" },
+    { id: 5, name: "Meat Pie",              price: 800,  emoji: "🥧" },
+    { id: 6, name: "Chilled Zobo",          price: 700,  emoji: "🥤" }
+  ];
+
+  // ============ THE CART ============
+  // The cart is a list of { id, qty }.  It only stores the id and how many.
+  let cart = [];
+
+  // Load the saved cart (so a page refresh doesn't empty it)
+  try {
+    cart = JSON.parse(localStorage.getItem("cart")) || [];
+  } catch (error) {
+    cart = [];
+  }
+
+  // Helper: turn 3500 into "₦3,500"
+  function formatPrice(amount) {
+    return "₦" + amount.toLocaleString();
+  }
+
+  // ----- ADD TO CART: the main logic -----
+  function addToCart(id) {
+    // Is this item already in the cart?
+    const existing = cart.find(function (item) {
+      return item.id === id;
+    });
+
+    if (existing) {
+      existing.qty = existing.qty + 1;     // yes: just increase the number
+    } else {
+      cart.push({ id: id, qty: 1 });       // no: add it as a new row
+    }
+
+    saveAndRender();
+  }
+
+  // Used by the + and - buttons in the cart
+  function changeQty(id, change) {
+    const item = cart.find(function (i) { return i.id === id; });
+    if (!item) return;
+
+    item.qty = item.qty + change;
+
+    // If the quantity hits 0, remove the item
+    if (item.qty <= 0) {
+      cart = cart.filter(function (i) { return i.id !== id; });
+    }
+
+    saveAndRender();
+  }
+
+  function clearCart() {
+    cart = [];
+    saveAndRender();
+  }
+
+  function saveAndRender() {
+    try {
+      localStorage.setItem("cart", JSON.stringify(cart));
+    } catch (error) {
+      // saving not available, the cart still works until refresh
+    }
+    renderCart();
+  }
+
+  // ============ DRAWING THE PAGE ============
+  function renderMenu() {
+    let html = "";
+    menu.forEach(function (food) {
+      html += `
+        <div class="card">
+          <div class="emoji">${food.emoji}</div>
+          <h3>${food.name}</h3>
+          <div class="price">${formatPrice(food.price)}</div>
+          <button onclick="addToCart(${food.id})">Add to Cart</button>
+        </div>
+      `;
+    });
+    document.getElementById("menu").innerHTML = html;
+  }
+
+  function renderCart() {
+    let html = "";
+    let total = 0;
+    let count = 0;
+
+    cart.forEach(function (cartItem) {
+      // Find the full food info using the id
+      const food = menu.find(function (m) { return m.id === cartItem.id; });
+      if (!food) return;
+
+      const lineTotal = food.price * cartItem.qty;
+      total += lineTotal;
+      count += cartItem.qty;
+
+      html += `
+        <div class="cart-row">
+          <div>
+            <strong>${food.name}</strong><br>
+            ${formatPrice(lineTotal)}
+          </div>
+          <div class="qty-buttons">
+            <button onclick="changeQty(${food.id}, -1)">-</button>
+            ${cartItem.qty}
+            <button onclick="changeQty(${food.id}, 1)">+</button>
+          </div>
+        </div>
+      `;
+    });
+
+    if (cart.length === 0) {
+      html = "<p>Your cart is empty.</p>";
+    }
+
+    document.getElementById("cart-items").innerHTML = html;
+    document.getElementById("cart-total").innerHTML = "Total: " + formatPrice(total);
+    document.getElementById("cart-link").innerHTML = "View cart (" + count + ")";
+  }
+
+  // ============ CHECKOUT ============
+  // Builds a WhatsApp message with the order and opens it
+  function checkout() {
+    if (cart.length === 0) {
+      alert("Your cart is empty!");
+      return;
+    }
+
+    let message = "Hello, I want to order:%0A";
+    let total = 0;
+
+    cart.forEach(function (cartItem) {
+      const food = menu.find(function (m) { return m.id === cartItem.id; });
+      if (!food) return;
+      total += food.price * cartItem.qty;
+      message += "- " + cartItem.qty + " x " + food.name + "%0A";
+    });
+
+    message += "Total: " + formatPrice(total);
+
+    window.open("https://wa.me/" + WHATSAPP_NUMBER + "?text=" + message, "_blank");
+  }
+
+  // ============ START ============
+  renderMenu();
+  renderCart();
+</script>
+
+</body>
+</html>
